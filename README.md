@@ -1,5 +1,7 @@
 # IPA Info.plist Editor (MVP)
 
+公開URL: https://yossyaze.github.io/ipa-infoplist-editor/
+
 ブラウザ上で `.ipa` / `.zip` を読み込み、`Payload/*.app/Info.plist` の基本情報を編集して再保存するツールです。
 
 ## 使い方
