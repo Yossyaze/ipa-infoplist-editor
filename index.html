@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPA Info.plist Editor - Redesign</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/plist@3.0.6/dist/plist.min.js"></script>
+
+    <style>
+        .json-string { color: #059669; }
+        .json-number { color: #2563EB; }
+        .json-boolean { color: #D97706; }
+        .loader {
+            border-top-color: #3B82F6;
+            -webkit-animation: spinner 1.1s linear infinite;
+            animation: spinner 1.1s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800">
+    <div class="relative">
+        <div class="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_55%)]"></div>
+
+        <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <header class="mb-8">
+                <div class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    Utility for iOS IPA
+                </div>
+                <h1 class="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">IPA Info.plist Editor</h1>
+                <p class="mt-2 text-slate-600">.ipaファイルを読み込み、Info.plistの主要項目を編集して再保存できます。</p>
+            </header>
+
+            <section id="drop-zone" class="group mb-6 cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm shadow-slate-200/60 transition hover:border-blue-500 hover:bg-blue-50">
+                <div class="pointer-events-none flex flex-col items-center gap-4">
+                    <div class="rounded-2xl bg-blue-50 p-3 ring-1 ring-blue-100">
+                        <svg class="h-9 w-9 text-blue-500" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-lg font-semibold text-slate-900"><span class="text-blue-600">クリックして選択</span> またはドラッグ＆ドロップ</p>
+                        <p class="mt-1 text-sm text-slate-500">.ipa / .zip（最大500MB推奨）</p>
+                    </div>
+                </div>
+                <input id="file-input" type="file" class="hidden" accept=".ipa,.zip" />
+            </section>
+
+            <div id="loading" class="hidden rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+                <div class="mx-auto loader h-10 w-10 rounded-full border-4 border-slate-200 border-t-4"></div>
+                <p class="mt-3 text-sm text-slate-600" id="loading-text">IPAファイルを解析中...</p>
+            </div>
+
+            <div id="error-msg" class="hidden mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
+                <p class="text-sm text-red-700" id="error-text">エラーが発生しました。</p>
+            </div>
+
+            <section id="results" class="hidden space-y-6 lg:grid lg:grid-cols-12 lg:gap-6 lg:space-y-0">
+                <div class="rounded-xl border border-amber-300 bg-amber-50 p-4 lg:col-span-12">
+                    <p class="text-sm text-amber-800">
+                        <strong>注意:</strong> Info.plistを編集して保存すると、アプリの電子署名(Code Signature)が無効になります。実機にインストールするには、再署名(Resign)処理が必要です。
+                    </p>
+                </div>
+
+                <div class="rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/70 lg:col-span-5">
+                    <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-slate-900">基本情報の編集</h2>
+                            <p class="mt-1 text-sm text-slate-600">主要なInfo.plist項目を編集</p>
+                        </div>
+                        <button id="btn-save" disabled class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-white">
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                            </svg>
+                            編集したIPAを保存
+                        </button>
+                    </div>
+
+                    <div class="space-y-4 p-5">
+                        <div>
+                            <label for="input-name" class="mb-1 block text-sm font-medium text-slate-700">アプリ名</label>
+                            <input type="text" id="input-name" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200/60" placeholder="例: MyApp">
+                            <p class="mt-1 text-xs text-slate-500">CFBundleDisplayName / CFBundleName</p>
+                        </div>
+
+                        <div>
+                            <label for="input-id" class="mb-1 block text-sm font-medium text-slate-700">Bundle ID</label>
+                            <input type="text" id="input-id" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200/60" placeholder="例: com.example.app">
+                            <p class="mt-1 text-xs text-slate-500">CFBundleIdentifier</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                            <div>
+                                <label for="input-version" class="mb-1 block text-sm font-medium text-slate-700">バージョン</label>
+                                <input type="text" id="input-version" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200/60" placeholder="1.0.0">
+                                <p class="mt-1 text-xs text-slate-500">CFBundleShortVersionString</p>
+                            </div>
+                            <div>
+                                <label for="input-build" class="mb-1 block text-sm font-medium text-slate-700">ビルド番号</label>
+                                <input type="text" id="input-build" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200/60" placeholder="1">
+                                <p class="mt-1 text-xs text-slate-500">CFBundleVersion</p>
+                            </div>
+                            <div>
+                                <label for="input-os" class="mb-1 block text-sm font-medium text-slate-700">最小OS</label>
+                                <input type="text" id="input-os" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200/60" placeholder="14.0">
+                                <p class="mt-1 text-xs text-slate-500">MinimumOSVersion</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/70 lg:col-span-7">
+                    <div class="border-b border-slate-200 px-5 py-4">
+                        <h2 class="text-lg font-semibold text-slate-900">全てのデータ (プレビュー)</h2>
+                        <p class="mt-1 text-sm text-slate-600">上記以外の項目は読み取り表示のみ。保存時は内容を保持します。</p>
+                    </div>
+                    <div class="max-h-96 overflow-auto lg:max-h-[calc(100vh-18rem)]">
+                        <table class="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead class="bg-slate-50 sticky top-0">
+                                <tr>
+                                    <th class="w-1/3 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Key</th>
+                                    <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="raw-table-body" class="divide-y divide-slate-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        let currentZip = null;
+        let currentPlistPath = null;
+        let currentPlistData = null;
+        let originalFileName = "edited.ipa";
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const loading = document.getElementById('loading');
+        const loadingText = document.getElementById('loading-text');
+        const results = document.getElementById('results');
+        const errorMsg = document.getElementById('error-msg');
+        const errorText = document.getElementById('error-text');
+        const btnSave = document.getElementById('btn-save');
+        const rawTableBody = document.getElementById('raw-table-body');
+
+        const inputName = document.getElementById('input-name');
+        const inputId = document.getElementById('input-id');
+        const inputVersion = document.getElementById('input-version');
+        const inputBuild = document.getElementById('input-build');
+        const inputOs = document.getElementById('input-os');
+        setSaveEnabled(false);
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-blue-500', 'bg-blue-50');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        btnSave.addEventListener('click', saveIPA);
+
+        inputName.addEventListener('input', (e) => {
+            if (currentPlistData) {
+                if (currentPlistData.hasOwnProperty('CFBundleDisplayName')) {
+                    currentPlistData['CFBundleDisplayName'] = e.target.value;
+                }
+                if (currentPlistData.hasOwnProperty('CFBundleName')) {
+                    currentPlistData['CFBundleName'] = e.target.value;
+                }
+                renderRawTable(currentPlistData);
+            }
+        });
+
+        inputId.addEventListener('input', (e) => {
+            if (currentPlistData) {
+                currentPlistData['CFBundleIdentifier'] = e.target.value;
+                renderRawTable(currentPlistData);
+            }
+        });
+
+        inputVersion.addEventListener('input', (e) => {
+            if (currentPlistData) {
+                currentPlistData['CFBundleShortVersionString'] = e.target.value;
+                renderRawTable(currentPlistData);
+            }
+        });
+
+        inputBuild.addEventListener('input', (e) => {
+            if (currentPlistData) {
+                currentPlistData['CFBundleVersion'] = e.target.value;
+                renderRawTable(currentPlistData);
+            }
+        });
+
+        inputOs.addEventListener('input', (e) => {
+            if (currentPlistData) {
+                currentPlistData['MinimumOSVersion'] = e.target.value;
+                renderRawTable(currentPlistData);
+            }
+        });
+
+        async function handleFile(file) {
+            results.classList.add('hidden');
+            errorMsg.classList.add('hidden');
+            loading.classList.remove('hidden');
+            loadingText.textContent = "IPAファイルを解析中...";
+            setSaveEnabled(false);
+            currentZip = null;
+            currentPlistPath = null;
+            currentPlistData = null;
+            rawTableBody.innerHTML = '';
+
+            originalFileName = file.name;
+
+            try {
+                if (!file.name.toLowerCase().endsWith('.ipa') && !file.name.toLowerCase().endsWith('.zip')) {
+                    throw new Error("拡張子が .ipa または .zip のファイルを選択してください。");
+                }
+
+                const zip = await JSZip.loadAsync(file);
+                currentZip = zip;
+
+                const plistCandidates = Object.keys(zip.files)
+                    .filter((filename) => /^Payload\/[^\/]+\.app\/Info\.plist$/i.test(filename))
+                    .sort();
+
+                if (plistCandidates.length === 0) {
+                    throw new Error("Payloadフォルダ内に Info.plist が見つかりませんでした。正しいIPAファイルですか？");
+                }
+
+                currentPlistPath = plistCandidates[0];
+                const infoPlistFile = zip.files[currentPlistPath];
+
+                if (!infoPlistFile) {
+                    throw new Error("Info.plist の読み込みに失敗しました。");
+                }
+
+                const content = await infoPlistFile.async("uint8array");
+                let plistData = null;
+
+                const isBinary = (
+                    content.length > 8 &&
+                    String.fromCharCode(content[0]) === 'b' &&
+                    String.fromCharCode(content[1]) === 'p' &&
+                    String.fromCharCode(content[2]) === 'l' &&
+                    String.fromCharCode(content[3]) === 'i' &&
+                    String.fromCharCode(content[4]) === 's' &&
+                    String.fromCharCode(content[5]) === 't'
+                );
+
+                if (isBinary) {
+                    plistData = parseBinaryPlist(content);
+                } else {
+                    const textDecoder = new TextDecoder("utf-8");
+                    const xmlContent = textDecoder.decode(content);
+                    plistData = plist.parse(xmlContent);
+                }
+
+                if (!plistData || typeof plistData !== 'object' || Array.isArray(plistData)) {
+                    throw new Error("Plistファイルの解析に失敗しました。");
+                }
+
+                currentPlistData = plistData;
+                setupEditor(plistData);
+            } catch (err) {
+                showError(err.message || "ファイルの読み込み中にエラーが発生しました。");
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        function setupEditor(data) {
+            inputName.value = data['CFBundleDisplayName'] || data['CFBundleName'] || '';
+            inputId.value = data['CFBundleIdentifier'] || '';
+            inputVersion.value = data['CFBundleShortVersionString'] || '';
+            inputBuild.value = data['CFBundleVersion'] || '';
+            inputOs.value = data['MinimumOSVersion'] || '';
+
+            renderRawTable(data);
+
+            results.classList.remove('hidden');
+            setSaveEnabled(true);
+        }
+
+        async function saveIPA() {
+            if (!currentZip || !currentPlistData || !currentPlistPath) return;
+            errorMsg.classList.add('hidden');
+
+            const validationMessage = validateBeforeSave();
+            if (validationMessage) {
+                showError(validationMessage);
+                return;
+            }
+
+            const originalBtnText = btnSave.innerHTML;
+            btnSave.disabled = true;
+            btnSave.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 処理中...`;
+
+            try {
+                const xml = plist.build(currentPlistData);
+                currentZip.file(currentPlistPath, xml);
+                const content = await currentZip.generateAsync({ type: "blob" });
+
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.href = url;
+                const bundleId = currentPlistData['CFBundleIdentifier'] || 'unknown';
+                const version = currentPlistData['CFBundleShortVersionString'] || '1.0';
+                const newName = buildEditedFileName(originalFileName, bundleId, version);
+                a.download = newName;
+                document.body.appendChild(a);
+                a.click();
+
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }, 100);
+            } catch (err) {
+                alert("保存中にエラーが発生しました: " + err.message);
+            } finally {
+                btnSave.disabled = false;
+                btnSave.innerHTML = originalBtnText;
+            }
+        }
+
+        function setSaveEnabled(enabled) {
+            btnSave.disabled = !enabled;
+        }
+
+        function renderRawTable(data) {
+            rawTableBody.innerHTML = '';
+
+            const sortedKeys = Object.keys(data).sort();
+            sortedKeys.forEach((key) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-50';
+
+                const tdKey = document.createElement('td');
+                tdKey.className = "px-5 py-3 align-top font-medium text-slate-800";
+                tdKey.textContent = key;
+
+                const tdVal = document.createElement('td');
+                tdVal.className = "px-5 py-3 align-top text-slate-600 break-all";
+                tdVal.appendChild(formatValue(data[key]));
+
+                tr.appendChild(tdKey);
+                tr.appendChild(tdVal);
+                rawTableBody.appendChild(tr);
+            });
+        }
+
+        function validateBeforeSave() {
+            const bundleId = inputId.value.trim();
+            if (!bundleId) {
+                return "Bundle ID (CFBundleIdentifier) は必須です。";
+            }
+            if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(bundleId)) {
+                return "Bundle ID の形式が不正です。例: com.example.app";
+            }
+
+            const minOs = inputOs.value.trim();
+            if (minOs && !/^\d+(\.\d+){0,2}$/.test(minOs)) {
+                return "最小OSバージョンは 14 / 14.0 / 14.0.1 の形式で入力してください。";
+            }
+
+            return null;
+        }
+
+        function buildEditedFileName(fileName, bundleId, version) {
+            const suffix = `${bundleId}_${version}`;
+            if (/(\.[\w\d_-]+)$/i.test(fileName)) {
+                const ext = fileName.match(/(\.[\w\d_-]+)$/i)[0];
+                return `${suffix}${ext}`;
+            }
+            return `${suffix}.ipa`;
+        }
+
+        function formatValue(value) {
+            if (value === null) return document.createTextNode("null");
+            if (Array.isArray(value)) {
+                const div = document.createElement('div');
+                div.textContent = `Array (${value.length})`;
+                div.className = "text-slate-500 italic";
+                return div;
+            }
+            if (typeof value === 'object') {
+                if (value instanceof Date) {
+                    const span = document.createElement('span');
+                    span.className = "json-number";
+                    span.textContent = value.toISOString();
+                    return span;
+                }
+                const div = document.createElement('div');
+                div.textContent = "Dictionary";
+                div.className = "text-slate-500 italic";
+                return div;
+            }
+            if (typeof value === 'boolean') {
+                const span = document.createElement('span');
+                span.className = "json-boolean";
+                span.textContent = value.toString();
+                return span;
+            }
+            if (typeof value === 'number') {
+                const span = document.createElement('span');
+                span.className = "json-number";
+                span.textContent = value.toString();
+                return span;
+            }
+            const span = document.createElement('span');
+            span.className = "json-string";
+            span.textContent = String(value);
+            return span;
+        }
+
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorMsg.classList.remove('hidden');
+        }
+
+        function parseBinaryPlist(buffer) {
+            if (buffer.byteLength < 40) {
+                throw new Error("Binary plist が不正です (サイズ不足)。");
+            }
+
+            const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+            const trailerOffset = buffer.byteLength - 32;
+            const offsetIntSize = dataView.getUint8(trailerOffset + 6);
+            const objectRefSize = dataView.getUint8(trailerOffset + 7);
+            const numObjects = Number(dataView.getBigUint64(trailerOffset + 8, false));
+            const topObject = Number(dataView.getBigUint64(trailerOffset + 16, false));
+            const offsetTableOffset = Number(dataView.getBigUint64(trailerOffset + 24, false));
+
+            if (![1, 2, 4, 8].includes(offsetIntSize)) {
+                throw new Error("Binary plist の offsetIntSize が未対応です。");
+            }
+            if (![1, 2, 4].includes(objectRefSize)) {
+                throw new Error("Binary plist の objectRefSize が未対応です。");
+            }
+
+            const offsetTable = [];
+            for (let i = 0; i < numObjects; i++) {
+                const offsetBytes = offsetTableOffset + (i * offsetIntSize);
+                let offset = 0;
+                if (offsetIntSize === 1) offset = dataView.getUint8(offsetBytes);
+                else if (offsetIntSize === 2) offset = dataView.getUint16(offsetBytes, false);
+                else if (offsetIntSize === 4) offset = dataView.getUint32(offsetBytes, false);
+                else if (offsetIntSize === 8) offset = Number(dataView.getBigUint64(offsetBytes, false));
+                offsetTable.push(offset);
+            }
+
+            function parseObject(objRef) {
+                const offset = offsetTable[objRef];
+                const typeByte = dataView.getUint8(offset);
+                const type = (typeByte & 0xF0) >> 4;
+                let objInfo = typeByte & 0x0F;
+                let length = objInfo;
+                let dataOffset = 1;
+
+                if (type === 0x0) {
+                    if (objInfo === 0x00) return null;
+                    if (objInfo === 0x08) return false;
+                    if (objInfo === 0x09) return true;
+                    return null;
+                }
+                else if (type === 0x1) {
+                    const intBytes = 1 << objInfo;
+                    let val = 0;
+                    if (intBytes === 1) val = dataView.getUint8(offset + 1);
+                    else if (intBytes === 2) val = dataView.getUint16(offset + 1, false);
+                    else if (intBytes === 4) val = dataView.getUint32(offset + 1, false);
+                    else if (intBytes === 8) val = Number(dataView.getBigUint64(offset + 1, false));
+                    return val;
+                }
+                else if (type === 0x2) {
+                    const realBytes = 1 << objInfo;
+                    if (realBytes === 4) return dataView.getFloat32(offset + 1, false);
+                    if (realBytes === 8) return dataView.getFloat64(offset + 1, false);
+                    return 0;
+                }
+                else if (type === 0x3) {
+                    const seconds = dataView.getFloat64(offset + 1, false);
+                    const epoch = new Date(Date.UTC(2001, 0, 1, 0, 0, 0)).getTime();
+                    return new Date(epoch + (seconds * 1000));
+                }
+                else if (type === 0x4) {
+                    if (objInfo === 0xF) {
+                        const sizeCheck = parseSize(offset + 1);
+                        length = sizeCheck.length;
+                        dataOffset = 1 + sizeCheck.bytesRead;
+                    }
+                    return "<Data bytes=" + length + ">";
+                }
+                else if (type === 0x5) {
+                    if (objInfo === 0xF) {
+                        const sizeCheck = parseSize(offset + 1);
+                        length = sizeCheck.length;
+                        dataOffset = 1 + sizeCheck.bytesRead;
+                    }
+                    const strBuffer = buffer.subarray(offset + dataOffset, offset + dataOffset + length);
+                    return new TextDecoder("ascii").decode(strBuffer);
+                }
+                else if (type === 0x6) {
+                    if (objInfo === 0xF) {
+                        const sizeCheck = parseSize(offset + 1);
+                        length = sizeCheck.length;
+                        dataOffset = 1 + sizeCheck.bytesRead;
+                    }
+                    const strBuffer = buffer.subarray(offset + dataOffset, offset + dataOffset + (length * 2));
+                    return new TextDecoder("utf-16be").decode(strBuffer);
+                }
+                else if (type === 0xA) {
+                    if (objInfo === 0xF) {
+                        const sizeCheck = parseSize(offset + 1);
+                        length = sizeCheck.length;
+                        dataOffset = 1 + sizeCheck.bytesRead;
+                    }
+                    const arr = [];
+                    for (let i = 0; i < length; i++) {
+                        const refStart = offset + dataOffset + (i * objectRefSize);
+                        let ref = 0;
+                        if (objectRefSize === 1) ref = dataView.getUint8(refStart);
+                        else if (objectRefSize === 2) ref = dataView.getUint16(refStart, false);
+                        else if (objectRefSize === 4) ref = dataView.getUint32(refStart, false);
+                        arr.push(parseObject(ref));
+                    }
+                    return arr;
+                }
+                else if (type === 0xD) {
+                    if (objInfo === 0xF) {
+                        const sizeCheck = parseSize(offset + 1);
+                        length = sizeCheck.length;
+                        dataOffset = 1 + sizeCheck.bytesRead;
+                    }
+                    const dict = {};
+                    for (let i = 0; i < length; i++) {
+                        const keyRefStart = offset + dataOffset + (i * objectRefSize);
+                        let keyRef = 0;
+                        if (objectRefSize === 1) keyRef = dataView.getUint8(keyRefStart);
+                        else if (objectRefSize === 2) keyRef = dataView.getUint16(keyRefStart, false);
+                        else if (objectRefSize === 4) keyRef = dataView.getUint32(keyRefStart, false);
+
+                        const valRefStart = offset + dataOffset + (length * objectRefSize) + (i * objectRefSize);
+                        let valRef = 0;
+                        if (objectRefSize === 1) valRef = dataView.getUint8(valRefStart);
+                        else if (objectRefSize === 2) valRef = dataView.getUint16(valRefStart, false);
+                        else if (objectRefSize === 4) valRef = dataView.getUint32(valRefStart, false);
+
+                        const key = parseObject(keyRef);
+                        const val = parseObject(valRef);
+                        dict[key] = val;
+                    }
+                    return dict;
+                }
+                return "Unknown Type";
+            }
+
+            function parseSize(offset) {
+                const typeByte = dataView.getUint8(offset);
+                const type = (typeByte & 0xF0) >> 4;
+                const objInfo = typeByte & 0x0F;
+                if (type !== 0x1) return { length: 0, bytesRead: 1 };
+                const intBytes = 1 << objInfo;
+                let length = 0;
+                if (intBytes === 1) length = dataView.getUint8(offset + 1);
+                else if (intBytes === 2) length = dataView.getUint16(offset + 1, false);
+                else if (intBytes === 4) length = dataView.getUint32(offset + 1, false);
+                else if (intBytes === 8) length = Number(dataView.getBigUint64(offset + 1, false));
+                return { length: length, bytesRead: 1 + intBytes };
+            }
+
+            return parseObject(topObject);
+        }
+    </script>
+</body>
+</html>
